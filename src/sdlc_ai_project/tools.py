@@ -26,14 +26,15 @@ import pickle
 from functools import lru_cache
 from dotenv import load_dotenv
 from pydantic import Field, SkipValidation
+from crewai import LLM
 
 # Load environment variables
 load_dotenv()
 
 # Environment variables with defaults
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")  # Empty string as default
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 MODEL_NAME = os.getenv("MODEL_NAME", "gemini-1.5-pro")
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "8192"))
 RATE_LIMIT = int(os.getenv("RATE_LIMIT", "60"))
@@ -43,6 +44,20 @@ MAX_AGENTS = int(os.getenv("MAX_AGENTS", "10"))
 MAX_TASKS_PER_AGENT = int(os.getenv("MAX_TASKS_PER_AGENT", "5"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE", "app.log")
+
+def get_configured_llm() -> LLM:
+    """Get a configured LLM instance using Gemini."""
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
+        raise ValueError("GEMINI_API_KEY environment variable is not set")
+    
+    return LLM(
+        model="gemini/gemini-1.5-flash",
+        api_key=gemini_api_key
+    )
+
+# Initialize the LLM
+llm = get_configured_llm()
 
 # Cache management
 class CacheManager:
@@ -136,40 +151,231 @@ agent_limit_manager = AgentLimitManager(max_agents=MAX_AGENTS, max_tasks_per_age
 class DocumentationTool(BaseTool):
     name: str = "documentation_tool"
     description: str = "Tool for accessing and following documentation standards"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    github_tool: SkipValidation[GithubSearchTool] = Field(default_factory=lambda: GithubSearchTool(
-        gh_token=GITHUB_TOKEN or "dummy_token",  # Use dummy token if none provided
-        content_types=['code', 'issue']
-    ))
+    serper_tool: SkipValidation[SerperDevTool] = Field(default_factory=SerperDevTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(
+        default_factory=lambda: CodeDocsSearchTool(
+            config=dict(
+                llm=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-1.5-pro",
+                        temperature=0.7,
+                        max_tokens=MAX_TOKENS,
+                        api_key=GOOGLE_API_KEY,
+                    ),
+                ),
+                embedder=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-embedding-exp-03-07",
+                        task_type="retrieval_document",
+                    ),
+                ),
+            )
+        )
+    )
+    github_tool: SkipValidation[GithubSearchTool] = Field(
+        default_factory=lambda: GithubSearchTool(
+            gh_token=GITHUB_TOKEN or "dummy_token",
+            content_types=['code', 'issue'],
+            config=dict(
+                llm=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-1.5-pro",
+                        temperature=0.7,
+                        max_tokens=MAX_TOKENS,
+                        api_key=GOOGLE_API_KEY,
+                    ),
+                ),
+                embedder=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-embedding-exp-03-07",
+                        task_type="retrieval_document",
+                    ),
+                ),
+            )
+        )
+    )
     
     def _run(self, query: str) -> str:
-        # Search code documentation and GitHub for relevant information
-        code_docs_result = self.code_docs_tool._run(query)
-        github_result = "GitHub search disabled (no token provided)" if not GITHUB_TOKEN else self.github_tool._run(query)
-        return f"Documentation standards from code docs: {code_docs_result}\nGitHub documentation: {github_result}"
+        # First, use Serper to find relevant documentation URLs
+        search_result = self.serper_tool.run(search_query=f"{query} documentation")
+        if not search_result or "organic" not in search_result:
+            return "No documentation found"
+        
+        # Get the first link from search results
+        if not search_result["organic"] or "link" not in search_result["organic"][0]:
+            return "No documentation URLs found"
+        
+        doc_url = search_result["organic"][0]["link"]
+        
+        # Use CodeDocsSearchTool to search in the found documentation
+        try:
+            self.code_docs_tool.docs_url = doc_url
+            result = self.code_docs_tool.run(query)
+            if result:
+                code_docs_result = f"From {doc_url}:\n{result}"
+            else:
+                code_docs_result = f"No results found in {doc_url}"
+        except Exception as e:
+            code_docs_result = f"Error searching {doc_url}: {str(e)}"
+        
+        return f"Documentation search results:\n{code_docs_result}"
 
 class ArchitectureDocumentationTool(BaseTool):
     name: str = "architecture_documentation_tool"
     description: str = "Tool for accessing architectural documentation standards"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    serper_tool: SkipValidation[SerperDevTool] = Field(default_factory=SerperDevTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(
+        default_factory=lambda: CodeDocsSearchTool(
+            config=dict(
+                llm=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-1.5-pro",
+                        temperature=0.7,
+                        max_tokens=MAX_TOKENS,
+                        api_key=GOOGLE_API_KEY,
+                    ),
+                ),
+                embedder=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-embedding-exp-03-07",
+                        task_type="retrieval_document",
+                    ),
+                ),
+            )
+        )
+    )
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(
+        default_factory=lambda: WebsiteSearchTool(
+            config=dict(
+                llm=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-1.5-pro",
+                        temperature=0.7,
+                        max_tokens=MAX_TOKENS,
+                        api_key=GOOGLE_API_KEY,
+                    ),
+                ),
+                embedder=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-embedding-exp-03-07",
+                        task_type="retrieval_document",
+                    ),
+                ),
+            )
+        )
+    )
     
     def _run(self, query: str) -> str:
-        # Search code documentation and web for architectural patterns
-        code_docs_result = self.code_docs_tool._run(query)
+        # First, use Serper to find relevant architecture documentation URLs
+        search_result = self.serper_tool.run(search_query=f"{query} architecture documentation")
+        if not search_result or "organic" not in search_result:
+            return "No architecture documentation found"
+        
+        # Get the first link from search results
+        if not search_result["organic"] or "link" not in search_result["organic"][0]:
+            return "No architecture documentation URLs found"
+        
+        doc_url = search_result["organic"][0]["link"]
+        
+        # Use CodeDocsSearchTool to search in the found documentation
+        try:
+            self.code_docs_tool.docs_url = doc_url
+            result = self.code_docs_tool._run(query)
+            if result:
+                code_docs_result = f"From {doc_url}:\n{result}"
+            else:
+                code_docs_result = f"No results found in {doc_url}"
+        except Exception as e:
+            code_docs_result = f"Error searching {doc_url}: {str(e)}"
+        
+        # Also search web for architectural patterns
         web_result = self.web_tool._run(query)
-        return f"Architectural documentation from code docs: {code_docs_result}\nWeb resources: {web_result}"
+        
+        return f"Architectural documentation from code docs:\n{code_docs_result}\n\nWeb resources: {web_result}"
 
 class TechStackDocumentationTool(BaseTool):
     name: str = "tech_stack_documentation_tool"
     description: str = "Tool for accessing tech stack documentation and best practices"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
-    github_tool: SkipValidation[GithubSearchTool] = Field(default_factory=lambda: GithubSearchTool(
-        gh_token=GITHUB_TOKEN or "dummy_token",  # Use dummy token if none provided
-        content_types=['code', 'issue']
-    ))
-    search_tool: SkipValidation[SerperDevTool] = Field(default_factory=SerperDevTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(
+        default_factory=lambda: CodeDocsSearchTool(
+            config=dict(
+                llm=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-1.5-pro",
+                        temperature=0.7,
+                        max_tokens=MAX_TOKENS,
+                        api_key=GOOGLE_API_KEY,
+                    ),
+                ),
+                embedder=dict(
+                    provider="google",
+                    config=dict(
+                        model="models/embedding-001",
+                        task_type="retrieval_document",
+                        api_key=GOOGLE_API_KEY,
+                    ),
+                ),
+            )
+        )
+    )
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(
+        default_factory=lambda: WebsiteSearchTool(
+            config=dict(
+                llm=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-1.5-pro",
+                        temperature=0.7,
+                        max_tokens=MAX_TOKENS,
+                        api_key=GOOGLE_API_KEY,
+                    ),
+                ),
+                embedder=dict(
+                    provider="google",
+                    config=dict(
+                        model="models/embedding-001",
+                        task_type="retrieval_document",
+                        api_key=GOOGLE_API_KEY,
+                    ),
+                ),
+            )
+        )
+    )
+    github_tool: SkipValidation[GithubSearchTool] = Field(
+        default_factory=lambda: GithubSearchTool(
+            gh_token=GITHUB_TOKEN or "dummy_token",
+            content_types=['code', 'issue'],
+            config=dict(
+                llm=dict(
+                    provider="google",
+                    config=dict(
+                        model="gemini-1.5-pro",
+                        temperature=0.7,
+                        max_tokens=MAX_TOKENS,
+                        api_key=GOOGLE_API_KEY,
+                    ),
+                ),
+                embedder=dict(
+                    provider="google",
+                    config=dict(
+                        model="models/embedding-001",
+                        task_type="retrieval_document",
+                        api_key=GOOGLE_API_KEY,
+                    ),
+                ),
+            )
+        )
+    )
+    search_tool: SkipValidation[BraveSearchTool] = Field(default_factory=BraveSearchTool)
     
     @lru_cache(maxsize=100)
     def _cached_search(self, query: str, tool: Any) -> str:
@@ -181,18 +387,11 @@ class TechStackDocumentationTool(BaseTool):
         if cached_result:
             return cached_result
         
-        if not rate_limiter.can_make_request():
-            time.sleep(1)  # Wait if rate limit is reached
-        
         # Extract tech stack components from the query
         tech_stack = self._extract_tech_stack(query)
         
         results = []
         for tech in tech_stack:
-            # Check token limit before making requests
-            if not token_manager.can_add_tokens(1000):  # Estimate 1000 tokens per component
-                break
-            
             # Use cached searches where possible
             docs_result = self._cached_search(f"{tech} documentation best practices", self.code_docs_tool)
             github_result = "GitHub search disabled (no token provided)" if not GITHUB_TOKEN else self._cached_search(f"{tech} example implementation", self.github_tool)
@@ -206,10 +405,6 @@ class TechStackDocumentationTool(BaseTool):
             Best Practices: {web_result}
             Common Issues: {search_result}
             """)
-            
-            # Add tokens used
-            token_manager.add_tokens(1000)
-            rate_limiter.add_request()
         
         result = "\n".join(results)
         # Cache the result
@@ -229,8 +424,8 @@ class TechStackDocumentationTool(BaseTool):
 class LanguageDocumentationTool(BaseTool):
     name: str = "language_documentation_tool"
     description: str = "Tool for accessing programming language documentation"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for language-specific information
@@ -241,8 +436,8 @@ class LanguageDocumentationTool(BaseTool):
 class FrameworkDocumentationTool(BaseTool):
     name: str = "framework_documentation_tool"
     description: str = "Tool for accessing framework documentation"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for framework information
@@ -253,8 +448,8 @@ class FrameworkDocumentationTool(BaseTool):
 class TestingFrameworkDocumentationTool(BaseTool):
     name: str = "testing_framework_documentation_tool"
     description: str = "Tool for accessing testing framework documentation"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for testing framework information
@@ -265,8 +460,8 @@ class TestingFrameworkDocumentationTool(BaseTool):
 class DeploymentDocumentationTool(BaseTool):
     name: str = "deployment_documentation_tool"
     description: str = "Tool for accessing deployment documentation"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for deployment information
@@ -277,8 +472,8 @@ class DeploymentDocumentationTool(BaseTool):
 class MonitoringDocumentationTool(BaseTool):
     name: str = "monitoring_documentation_tool"
     description: str = "Tool for accessing monitoring documentation"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for monitoring information
@@ -289,8 +484,8 @@ class MonitoringDocumentationTool(BaseTool):
 class MaintenanceDocumentationTool(BaseTool):
     name: str = "maintenance_documentation_tool"
     description: str = "Tool for accessing maintenance documentation"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for maintenance information
@@ -302,10 +497,11 @@ class MaintenanceDocumentationTool(BaseTool):
 class BestPracticesTool(BaseTool):
     name: str = "best_practices_tool"
     description: str = "Tool for accessing industry best practices"
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     github_tool: SkipValidation[GithubSearchTool] = Field(default_factory=lambda: GithubSearchTool(
         gh_token=GITHUB_TOKEN or "dummy_token",  # Use dummy token if none provided
-        content_types=['code', 'issue']
+        content_types=['code', 'issue'],
+        llm=llm
     ))
     
     def _run(self, query: str) -> str:
@@ -317,8 +513,8 @@ class BestPracticesTool(BaseTool):
 class DesignPatternsTool(BaseTool):
     name: str = "design_patterns_tool"
     description: str = "Tool for accessing design patterns"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for design patterns
@@ -329,10 +525,11 @@ class DesignPatternsTool(BaseTool):
 class CodingStandardsTool(BaseTool):
     name: str = "coding_standards_tool"
     description: str = "Tool for accessing coding standards"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
     github_tool: SkipValidation[GithubSearchTool] = Field(default_factory=lambda: GithubSearchTool(
         gh_token=GITHUB_TOKEN or "dummy_token",  # Use dummy token if none provided
-        content_types=['code', 'issue']
+        content_types=['code', 'issue'],
+        llm=llm
     ))
     
     def _run(self, query: str) -> str:
@@ -344,8 +541,8 @@ class CodingStandardsTool(BaseTool):
 class TestingBestPracticesTool(BaseTool):
     name: str = "testing_best_practices_tool"
     description: str = "Tool for accessing testing best practices"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for testing best practices
@@ -356,8 +553,8 @@ class TestingBestPracticesTool(BaseTool):
 class DebuggingBestPracticesTool(BaseTool):
     name: str = "debugging_best_practices_tool"
     description: str = "Tool for accessing debugging best practices"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for debugging best practices
@@ -368,8 +565,8 @@ class DebuggingBestPracticesTool(BaseTool):
 class DevOpsBestPracticesTool(BaseTool):
     name: str = "devops_best_practices_tool"
     description: str = "Tool for accessing DevOps best practices"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for DevOps best practices
@@ -380,8 +577,8 @@ class DevOpsBestPracticesTool(BaseTool):
 class ObservabilityBestPracticesTool(BaseTool):
     name: str = "observability_best_practices_tool"
     description: str = "Tool for accessing observability best practices"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for observability best practices
@@ -392,8 +589,8 @@ class ObservabilityBestPracticesTool(BaseTool):
 class OptimizationBestPracticesTool(BaseTool):
     name: str = "optimization_best_practices_tool"
     description: str = "Tool for accessing optimization best practices"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for optimization best practices
@@ -407,9 +604,10 @@ class ProjectStructureTool(BaseTool):
     description: str = "Tool for accessing project structure standards"
     github_tool: SkipValidation[GithubSearchTool] = Field(default_factory=lambda: GithubSearchTool(
         gh_token=GITHUB_TOKEN or "dummy_token",  # Use dummy token if none provided
-        content_types=['code', 'issue']
+        content_types=['code', 'issue'],
+        llm=llm
     ))
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search GitHub and web for project structure standards
@@ -420,8 +618,8 @@ class ProjectStructureTool(BaseTool):
 class CoverageStandardsTool(BaseTool):
     name: str = "coverage_standards_tool"
     description: str = "Tool for accessing coverage standards"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for coverage standards
@@ -432,10 +630,11 @@ class CoverageStandardsTool(BaseTool):
 class CodeQualityStandardsTool(BaseTool):
     name: str = "code_quality_standards_tool"
     description: str = "Tool for accessing code quality standards"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
     github_tool: SkipValidation[GithubSearchTool] = Field(default_factory=lambda: GithubSearchTool(
         gh_token=GITHUB_TOKEN or "dummy_token",  # Use dummy token if none provided
-        content_types=['code', 'issue']
+        content_types=['code', 'issue'],
+        llm=llm
     ))
     
     def _run(self, query: str) -> str:
@@ -447,8 +646,8 @@ class CodeQualityStandardsTool(BaseTool):
 class SecurityStandardsTool(BaseTool):
     name: str = "security_standards_tool"
     description: str = "Tool for accessing security standards"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for security standards
@@ -459,8 +658,8 @@ class SecurityStandardsTool(BaseTool):
 class AlertingStandardsTool(BaseTool):
     name: str = "alerting_standards_tool"
     description: str = "Tool for accessing alerting standards"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     
     def _run(self, query: str) -> str:
         # Search code documentation and web for alerting standards
@@ -472,10 +671,11 @@ class AlertingStandardsTool(BaseTool):
 class RefactoringGuidelinesTool(BaseTool):
     name: str = "refactoring_guidelines_tool"
     description: str = "Tool for accessing refactoring guidelines"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
     github_tool: SkipValidation[GithubSearchTool] = Field(default_factory=lambda: GithubSearchTool(
         gh_token=GITHUB_TOKEN or "dummy_token",  # Use dummy token if none provided
-        content_types=['code', 'issue']
+        content_types=['code', 'issue'],
+        llm=llm
     ))
     
     def _run(self, query: str) -> str:
@@ -487,10 +687,11 @@ class RefactoringGuidelinesTool(BaseTool):
 class DependencyManagementTool(BaseTool):
     name: str = "dependency_management_tool"
     description: str = "Tool for accessing dependency management standards"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
     github_tool: SkipValidation[GithubSearchTool] = Field(default_factory=lambda: GithubSearchTool(
         gh_token=GITHUB_TOKEN or "dummy_token",  # Use dummy token if none provided
-        content_types=['code', 'issue']
+        content_types=['code', 'issue'],
+        llm=llm
     ))
     
     def _run(self, query: str) -> str:
@@ -502,13 +703,14 @@ class DependencyManagementTool(BaseTool):
 class BugAnalysisTool(BaseTool):
     name: str = "bug_analysis_tool"
     description: str = "Tool for analyzing bugs and finding solutions from documentation and community resources"
-    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=CodeDocsSearchTool)
-    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=WebsiteSearchTool)
+    code_docs_tool: SkipValidation[CodeDocsSearchTool] = Field(default_factory=lambda: CodeDocsSearchTool(llm=llm))
+    web_tool: SkipValidation[WebsiteSearchTool] = Field(default_factory=lambda: WebsiteSearchTool(llm=llm))
     github_tool: SkipValidation[GithubSearchTool] = Field(default_factory=lambda: GithubSearchTool(
         gh_token=GITHUB_TOKEN or "dummy_token",  # Use dummy token if none provided
-        content_types=['code', 'issue']
+        content_types=['code', 'issue'],
+        llm=llm
     ))
-    search_tool: SkipValidation[SerperDevTool] = Field(default_factory=SerperDevTool)
+    search_tool: SkipValidation[BraveSearchTool] = Field(default_factory=BraveSearchTool)
     
     @lru_cache(maxsize=100)
     def _cached_search(self, query: str, tool: Any) -> str:

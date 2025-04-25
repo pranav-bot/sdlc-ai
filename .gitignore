@@ -5,6 +5,5 @@ base
 .env
 output
 output2
-.env
 old
 db

@@ -26,6 +26,7 @@ if __name__ == "__main__":
               api_key=os.environ["GEMINI_API_KEY"]
             )
     
+    Agent.llm = llm
     # Set the LLM for CrewAI
     Agent.default_llm = llm
     

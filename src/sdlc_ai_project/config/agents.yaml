@@ -6,9 +6,6 @@ requirement_analyst:
     Your expertise lies in transforming ambiguous user ideas into crystal-clear technical requirements,
     while anticipating edge cases, hidden constraints, and business logic gaps.
     You excel in NLP-driven requirement elicitation and business rule modeling.
-  tools:
-    - documentation_tool
-    - best_practices_tool
 
 architect:
   role: Lead Software Architect AI
