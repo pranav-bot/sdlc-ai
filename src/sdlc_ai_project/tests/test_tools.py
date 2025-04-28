@@ -1,7 +1,7 @@
 import os
 import pytest
 from dotenv import load_dotenv
-from sdlc_ai_project.tools import get_tool, get_configured_llm
+from sdlc_ai_project.tools_old import get_tool, get_configured_llm
 from crewai_tools import SerperDevTool
 
 # Load environment variables

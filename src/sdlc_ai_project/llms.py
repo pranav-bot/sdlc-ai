@@ -23,6 +23,12 @@ gemini_llm =  LLM(
 # Throughput
 # 105.0t/s
 
+microsoft_mai_ds_r1_llm =  LLM(
+    model="microsoft/mai-ds-r1:free",
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.environ["OPENROUTER_API_KEY"]
+)
+
 deepseek_llm = llm = LLM(
     model="openrouter/deepseek/deepseek-r1",
     base_url="https://openrouter.ai/api/v1",
@@ -34,3 +40,5 @@ llama_llm = LLM(
     temperature=0.7,
     api_key=os.environ["NVIDIA_API_KEY"]
 )
+
+#pytest sdlc_ai_project/tests/test_requirement_analyst.py -v -s
