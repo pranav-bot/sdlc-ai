@@ -37,7 +37,7 @@ class RequirementAnalyzer:
             ),
             llm=self.llm,
             knowledge_sources=[],
-            tools=[code_research_tool]
+            # tools=[code_research_tool]
         )
 
     @agent
@@ -66,7 +66,7 @@ class RequirementAnalyzer:
             #     CodeAnalysisTool(),  # For analyzing code patterns
             #     DocumentationTool()  # For analyzing project documentation
             # ]
-            tools=[code_research_tool]
+            # tools=[code_research_tool]
         )
 
     @task
@@ -219,6 +219,7 @@ class RequirementAnalyzer:
                 self.requirement_agent(),
             ],
             tasks=[
+                self.extraction_task(),
                 self.project_research_task(),
                 self.intent_analysis_task(),
                 self.task_generation_task(),

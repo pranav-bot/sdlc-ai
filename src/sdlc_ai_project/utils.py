@@ -1,9 +1,16 @@
+from asyncio import tasks
 import os
 import json
 import yaml
 from typing import Dict, Any, Optional
+from sdlc_ai_project.agents.knowledge import KnowledgeBaseAgent
 from sdlc_ai_project.agents.requirements import RequirementAnalyzer
+from sdlc_ai_project.agents.architecture import ArchitectureDesignAgent
+from sdlc_ai_project.agents.skeletons import CodeSkeletonGenerator
+from sdlc_ai_project.agents.generator import CodeGenerator
 from dotenv import load_dotenv
+
+
 
 load_dotenv()
 
@@ -20,9 +27,13 @@ def save_to_file(agent_name: str, data: str):
     print(f"Output saved to {filename}")
 
 
-def save_to_json(agent_name: str, data: dict):
+def save_to_json(agent_name: str, data: dict, title: str):
     """Save data to a JSON file."""
-    filename = f"{agent_name}.json"
+    directory = title
+    if not os.path.exists(directory):
+        os.makedirs(directory)  # Create the directory if it doesn't exist
+
+    filename = f"{directory}/{agent_name}.json"
     with open(filename, "w") as f:
         json.dump(data, f, indent=2)
     print(f"Output saved to {filename}")
@@ -123,7 +134,29 @@ def collect_task_outputs(agent) -> Dict[str, Any]:
 #         return outputs
 #     return None
 
-def load_agents(user_requirements: str, project_context: str, llm) -> Optional[Dict[str, Any]]:
+def run_sdlc(user_requirements: str, project_context: str, llm, title: str) -> Optional[Dict[str, Any]]:
+    knowledge_agent = KnowledgeBaseAgent(user_requirements=user_requirements, project_context=project_context, llm=llm)
+    knowledge_agent_outputs = collect_task_outputs(knowledge_agent)
+    save_to_json("Knowledge", knowledge_agent_outputs, title)
+
     req_analyzer = RequirementAnalyzer(user_requirements=user_requirements, project_context=project_context, llm=llm)
     req_analyzer_outputs = collect_task_outputs(req_analyzer)
-    return req_analyzer_outputs
+    save_to_json("Requirements", req_analyzer_outputs, title)
+
+    arch_agent = ArchitectureDesignAgent(requirement_analysis=req_analyzer_outputs, tasks=req_analyzer_outputs['task_generation_task'], project_context=project_context, tech_stack=knowledge_agent_outputs['finalize_tech_stack'], extraction_task=req_analyzer_outputs['extraction_task'], llm=llm)
+    arch_agent_outputs = collect_task_outputs(arch_agent)
+    save_to_json("Architecture", arch_agent_outputs, title)
+
+    skeleton_agent = CodeSkeletonGenerator(architecture_design=arch_agent_outputs, project_context=project_context, llm=llm)
+    skeleton_agent_outputs = collect_task_outputs(skeleton_agent)
+    save_to_json("Skeletons", skeleton_agent_outputs, title)
+
+    code_generator_agent = CodeGenerator(architecture_design=arch_agent_outputs, project_context=project_context, skeletons= skeleton_agent_outputs['code_skeleton_task'], module_boilerplate=skeleton_agent_outputs["module_boilerplate_task"], llm=llm)
+    code_generator_agent_outputs = collect_task_outputs(code_generator_agent)
+    save_to_json("Generator", code_generator_agent_outputs, title)
+
+
+
+
+
+    return

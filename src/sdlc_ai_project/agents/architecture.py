@@ -1,17 +1,17 @@
 import os
 import json
-from google import genai
+import google.generativeai as genai
 from crewai import Crew, Agent, Task, Process
 from crewai.project import CrewBase, agent, crew, task
 from dotenv import load_dotenv
-from crewai_tools import (
-    SerperDevTool,
-    WebScraperTool,
-    CodeAnalysisTool,
-    DocumentationTool,
-    DirectoryReadTool,
-    FileReadTool
-)
+# from crewai_tools import (
+#     SerperDevTool,
+#     WebScraperTool,
+#     CodeAnalysisTool,
+#     DocumentationTool,
+#     DirectoryReadTool,
+#     FileReadTool
+# )
 load_dotenv()
 
 @CrewBase
@@ -60,14 +60,14 @@ class ArchitectureDesignAgent:
                 "maintainability, and optimal performance. Researches similar systems and incorporates best practices."
             ),
             llm=self.llm,
-            tools=[
-                SerperDevTool(),  # For searching similar systems
-                WebScraperTool(),  # For analyzing similar implementations
-                CodeAnalysisTool(),  # For analyzing code patterns
-                DocumentationTool(),  # For analyzing project documentation
-                DirectoryReadTool(),  # For reading project files
-                FileReadTool()  # For reading specific files
-            ]
+            # tools=[
+            #     SerperDevTool(),  # For searching similar systems
+            #     WebScraperTool(),  # For analyzing similar implementations
+            #     CodeAnalysisTool(),  # For analyzing code patterns
+            #     DocumentationTool(),  # For analyzing project documentation
+            #     DirectoryReadTool(),  # For reading project files
+            #     FileReadTool()  # For reading specific files
+            # ]
         )
 
     @task

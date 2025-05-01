@@ -6,7 +6,7 @@ from crewai import LLM
 from sdlc_ai_project.agents.knowledge import KnowledgeBaseAgent
 from sdlc_ai_project.utils import collect_task_outputs
 from sdlc_ai_project.tools import code_research_tool
-from sdlc_ai_project.llms import gemini_llm
+from sdlc_ai_project.llms import llama_llm
 # Load environment variables
 load_dotenv()
 
@@ -23,7 +23,7 @@ def knowledge_agent():
     return KnowledgeBaseAgent(
         user_requirements="Build a todo app with user authentication",
         project_context="A simple web application for task management",
-        llm=gemini_llm,
+        llm=llama_llm,
     )
 
 def test_knowledge_agent(knowledge_agent):
@@ -36,4 +36,4 @@ def test_knowledge_agent(knowledge_agent):
     print(outputs)
 
 if __name__ == "__main__":
-    pytest.main([__file__]) 
+    pytest.main([__file__])

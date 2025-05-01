@@ -2,12 +2,12 @@ import os
 from crewai import Crew, Agent, Task, Process
 from crewai.project import CrewBase, agent, crew, task
 from dotenv import load_dotenv
-from crewai_tools import (
-    CodeAnalysisTool,
-    DocumentationTool,
-    TestingFrameworkTool,
-    DebuggingTool
-)
+# from crewai_tools import (
+#     CodeAnalysisTool,
+#     DocumentationTool,
+#     TestingFrameworkTool,
+#     DebuggingTool
+# )
 from sdlc_ai_project.agents.skeletons import CodeSkeletonGenerator
 
 load_dotenv()
@@ -20,10 +20,11 @@ class CodeGenerator:
     for each module, ensuring alignment with the architecture design and best practices.
     """
 
-    def __init__(self, architecture_design: str, project_context: str, skeleton_generator: CodeSkeletonGenerator, llm):
+    def __init__(self, architecture_design: str, project_context: str, skeletons, module_boilerplate, llm):
         self.architecture_design = architecture_design
         self.project_context = project_context
-        self.skeleton_generator = skeleton_generator
+        self.skeletons = skeletons
+        self.module_boilerplate = module_boilerplate
         self.llm = llm
 
     @agent
@@ -55,7 +56,7 @@ class CodeGenerator:
     def generate_code_task(self) -> Task:
         return Task(
             description=(
-                "Using the code skeleton and architecture design, generate production-ready code for each module. "
+                f"Using the code skeleton: {self.skeletons} {self.module_boilerplate} and architecture design: {self.architecture_design}, generate production-ready code for each module. "
                 "Include:\n"
                 "- Implementation of core logic\n"
                 "- Error handling and logging\n"
@@ -72,10 +73,6 @@ class CodeGenerator:
                 "A JSON object containing production-ready code for each module and integration points."
             ),
             agent=self.code_agent(),
-            context=[
-                self.skeleton_generator.code_skeleton_task(),
-                self.skeleton_generator.module_boilerplate_task()
-            ]
         )
 
     @task

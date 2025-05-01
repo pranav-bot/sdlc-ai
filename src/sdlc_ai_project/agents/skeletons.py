@@ -1,19 +1,19 @@
 import os
 import json
 import inspect
-from google import genai
+import google.generativeai as genai
 from litellm import completion
 from crewai import Crew, Agent, Task, Process
 from crewai.project import CrewBase, agent, crew, task
 from dotenv import load_dotenv
-from crewai_tools import (
-    SerperDevTool,
-    WebScraperTool,
-    CodeAnalysisTool,
-    DocumentationTool,
-    DirectoryReadTool,
-    FileReadTool
-)
+# from crewai_tools import (
+#     SerperDevTool,
+#     WebScraperTool,
+#     CodeAnalysisTool,
+#     DocumentationTool,
+#     DirectoryReadTool,
+#     FileReadTool
+# )
 load_dotenv()
 
 
@@ -53,14 +53,14 @@ class CodeSkeletonGenerator:
                 "scalability, maintainability, and optimal performance. Researches similar implementations."
             ),
             llm=self.llm,
-            tools=[
-                SerperDevTool(),  # For searching similar implementations
-                WebScraperTool(),  # For analyzing similar codebases
-                CodeAnalysisTool(),  # For analyzing code patterns
-                DocumentationTool(),  # For analyzing project documentation
-                DirectoryReadTool(),  # For reading project files
-                FileReadTool()  # For reading specific files
-            ]
+            # tools=[
+            #     SerperDevTool(),  # For searching similar implementations
+            #     WebScraperTool(),  # For analyzing similar codebases
+            #     CodeAnalysisTool(),  # For analyzing code patterns
+            #     DocumentationTool(),  # For analyzing project documentation
+            #     DirectoryReadTool(),  # For reading project files
+            #     FileReadTool()  # For reading specific files
+            # ]
         )
 
     @task

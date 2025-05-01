@@ -2,6 +2,8 @@ import os
 from dotenv import load_dotenv
 from crewai import Agent, Task, Crew, Process
 from crewai.project import CrewBase, agent, crew, task
+from crewai.memory import ShortTermMemory, LongTermMemory, EntityMemory
+from crewai.memory.storage.ltm_sqlite_storage import LTMSQLiteStorage
 import google.generativeai as genai
 from sdlc_ai_project.tools import code_research_tool, document_research_tool
 
@@ -42,7 +44,7 @@ class KnowledgeBaseAgent:
                 "to prepare reference material for software development."
             ),
             llm=self.llm,
-            tools=[code_research_tool, document_research_tool]
+            # tools=[code_research_tool, document_research_tool]
         )
 
     @task
@@ -52,6 +54,7 @@ class KnowledgeBaseAgent:
                 f"Using the user requirements: {self.user_requirements}, "
                 f"research similar open-source projects and software in the domain of {self.project_context}. "
                 "Return JSON with keys: 'projects': [{ 'name', 'repo_url', 'summary' }]."
+                "Validate the urls are correct"
             ),
             expected_output="JSON list of similar projects with metadata.",
             agent=self.kb_research_agent()
@@ -61,7 +64,7 @@ class KnowledgeBaseAgent:
     def gather_documentation(self) -> Task:
         return Task(
             description=(
-                "Scrape official docs, tutorials, and API references for the identified projects. "
+                "Scrape official docs, tutorials, and API references for the identified projects and technologies including language documentation and frameworks documentation. "
                 "Return JSON with 'docs': [{ 'title', 'url', 'snippet' }]."
             ),
             expected_output="JSON list of documentation snippets.",
@@ -78,7 +81,7 @@ class KnowledgeBaseAgent:
             ),
             expected_output="JSON list of code patterns and examples.",
             agent=self.kb_research_agent(),
-            context=[self.research_similar_projects()]
+            context=[self.research_similar_projects()],
         )
 
     @task
@@ -97,6 +100,21 @@ class KnowledgeBaseAgent:
                 self.collect_code_samples()
             ]
         )
+    
+    @task
+    def finalize_tech_stack(self) -> Task:
+        return Task(
+            description=(
+                "Analyze the gathered knowledge base, including similar projects, documentation, "
+                "and code samples, to propose a finalized tech stack for the project. "
+                "Return JSON with 'tech_stack': [{ 'technology', 'reason' }]."
+            ),
+            expected_output="JSON list of technologies with reasons for selection.",
+            agent=self.kb_research_agent(),
+            context=[
+                self.build_knowledge_base()
+            ]
+        )
 
     @crew
     def crew(self) -> Crew:
@@ -106,7 +124,24 @@ class KnowledgeBaseAgent:
                 self.research_similar_projects(),
                 self.gather_documentation(),
                 self.collect_code_samples(),
-                self.build_knowledge_base()
+                self.build_knowledge_base(),
+                self.finalize_tech_stack()
             ],
-            process=Process.sequential
+            # memory=True,
+            process=Process.sequential,
+            # long_term_memory=LongTermMemory(
+            #     storage = LTMSQLiteStorage(
+            #         db_path='./db/default_ragtool_db'
+            #     )
+            # ),
+            # short_term_memory=ShortTermMemory(
+            #     storage = LTMSQLiteStorage(
+            #         db_path='./db/default_ragtool_db'
+            #     )
+            # ),
+            # entity_memory=EntityMemory(
+            #     storage = LTMSQLiteStorage(
+            #         db_path='./db/default_ragtool_db'
+            #     )
+            # )
         )
